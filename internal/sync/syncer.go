@@ -1,61 +1,72 @@
 package sync
 
 import (
+	"context"
 	"fmt"
 
+	"github.com/yourusername/vaultpull/internal/backup"
+	"github.com/yourusername/vaultpull/internal/config"
 	"github.com/yourusername/vaultpull/internal/diff"
 	"github.com/yourusername/vaultpull/internal/envfile"
-	"github.com/yourusername/vaultpull/internal/vault"
+	"github.com/yourusername/vaultpull/internal/output"
 )
 
-// Result holds the outcome of a sync operation.
-type Result struct {
-	Path    string
-	Summary diff.Summary
-	Diff    []diff.Change
+// VaultClient fetches secrets from Vault.
+type VaultClient interface {
+	GetSecrets(ctx context.Context, mount, path string) (map[string]string, error)
 }
 
-// Syncer orchestrates pulling secrets from Vault and writing them to a .env file.
+// Syncer orchestrates pulling secrets and writing .env files.
 type Syncer struct {
-	client *vault.Client
+	client  VaultClient
+	printer *output.Printer
+	backups *backup.Manager
 }
 
-// New creates a new Syncer with the given Vault client.
-func New(client *vault.Client) *Syncer {
-	return &Syncer{client: client}
+// New creates a Syncer wired with the given client and printer.
+// If cfg.BackupDir is set, backup support is enabled.
+func New(client VaultClient, printer *output.Printer, cfg *config.Config) *Syncer {
+	var bm *backup.Manager
+	if cfg.BackupDir != "" {
+		bm = backup.New(cfg.BackupDir)
+	}
+	return &Syncer{client: client, printer: printer, backups: bm}
 }
 
-// Sync fetches secrets at secretPath from Vault and merges them into the .env
-// file at envPath. It returns a Result describing what changed.
-func (s *Syncer) Sync(secretPath, envPath string) (*Result, error) {
-	remote, err := s.client.GetSecrets(secretPath)
+// Run iterates over all targets, pulls secrets, diffs, and writes.
+func (s *Syncer) Run(ctx context.Context, cfg *config.Config) error {
+	for _, target := range cfg.Targets {
+		if err := s.syncTarget(ctx, cfg.Mount, target); err != nil {
+			return fmt.Errorf("sync target %q: %w", target.Path, err)
+		}
+	}
+	return nil
+}
+
+func (s *Syncer) syncTarget(ctx context.Context, mount string, target config.Target) error {
+	secrets, err := s.client.GetSecrets(ctx, mount, target.Path)
 	if err != nil {
-		return nil, fmt.Errorf("fetching secrets from vault path %q: %w", secretPath, err)
+		return err
 	}
 
-	local, err := envfile.Parse(envPath)
+	existing, err := envfile.Parse(target.Output)
 	if err != nil {
-		return nil, fmt.Errorf("parsing env file %q: %w", envPath, err)
+		return err
 	}
 
-	changes := diff.Compute(local, remote)
-	summary := diff.Summary(changes)
+	changes := diff.Compute(existing, secrets)
+	s.printer.PrintDiff(target.Output, changes)
+	s.printer.PrintSummary(diff.Summary(changes))
 
-	if summary.Added == 0 && summary.Modified == 0 && summary.Removed == 0 {
-		return &Result{
-			Path:    envPath,
-			Summary: summary,
-			Diff:    changes,
-		}, nil
+	if diff.Summary(changes).Total() == 0 {
+		return nil
 	}
 
-	if err := envfile.Write(envPath, remote); err != nil {
-		return nil, fmt.Errorf("writing env file %q: %w", envPath, err)
+	if target.Backup && s.backups != nil {
+		if _, err := s.backups.Create(target.Output); err != nil {
+			return fmt.Errorf("create backup: %w", err)
+		}
 	}
 
-	return &Result{
-		Path:    envPath,
-		Summary: summary,
-		Diff:    changes,
-	}, nil
+	return envfile.Write(target.Output, secrets)
 }

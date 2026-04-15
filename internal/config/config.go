@@ -7,41 +7,38 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Target describes a single Vault secret path → local .env file mapping.
+// Target describes a single Vault path → local file mapping.
 type Target struct {
-	SecretPath string `yaml:"secret_path"`
-	EnvFile    string `yaml:"env_file"`
+	Path    string `yaml:"path"`
+	Output  string `yaml:"output"`
+	Backup  bool   `yaml:"backup"`
 }
 
-// Config is the top-level configuration for vaultpull.
+// Config holds the full vaultpull configuration.
 type Config struct {
 	Address string   `yaml:"address"`
 	Token   string   `yaml:"token"`
 	Mount   string   `yaml:"mount"`
+	BackupDir string `yaml:"backup_dir"`
 	Targets []Target `yaml:"targets"`
 }
 
-// Load reads a YAML config file from path, applies defaults from environment
-// variables, and returns the resulting Config.
-// It does NOT run validation — call Validate separately.
+// Load reads and parses a YAML config file at path.
 func Load(path string) (*Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("reading config file %q: %w", path, err)
+		return nil, fmt.Errorf("config: read %q: %w", path, err)
 	}
 
 	var cfg Config
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return nil, fmt.Errorf("parsing config file %q: %w", path, err)
+		return nil, fmt.Errorf("config: parse %q: %w", path, err)
 	}
 
 	ApplyDefaults(&cfg)
 
-	if cfg.Address == "" {
-		return nil, fmt.Errorf("vault address is required (set 'address' in config or VAULT_ADDR)")
-	}
-	if len(cfg.Targets) == 0 {
-		return nil, fmt.Errorf("no sync targets defined in config")
+	if err := Validate(&cfg); err != nil {
+		return nil, err
 	}
 
 	return &cfg, nil

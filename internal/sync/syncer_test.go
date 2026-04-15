@@ -1,86 +1,94 @@
 package sync_test
 
 import (
-	"net/http"
-	"net/http/httptest"
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/yourusername/vaultpull/internal/config"
+	"github.com/yourusername/vaultpull/internal/output"
 	"github.com/yourusername/vaultpull/internal/sync"
-	"github.com/yourusername/vaultpull/internal/vault"
 )
 
-func newMockVault(t *testing.T, secrets map[string]string) *httptest.Server {
+type mockVault struct {
+	secrets map[string]string
+}
+
+func (m *mockVault) GetSecrets(_ context.Context, _, _ string) (map[string]string, error) {
+	return m.secrets, nil
+}
+
+func newTestConfig(t *testing.T, outputPath string, backup bool, bakDir string) *config.Config {
 	t.Helper()
-	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		data := `{"data":{"data":{`
-		i := 0
-		for k, v := range secrets {
-			if i > 0 {
-				data += ","
-			}
-			data += `"` + k + `":"` + v + `"`
-			i++
-		}
-		data += `}}}`
-		w.Write([]byte(data))
-	}))
+	return &config.Config{
+		Address:   "http://127.0.0.1:8200",
+		Token:     "test-token",
+		Mount:     "secret",
+		BackupDir: bakDir,
+		Targets: []config.Target{
+			{Path: "myapp/prod", Output: outputPath, Backup: backup},
+		},
+	}
 }
 
 func TestSync_NewSecrets(t *testing.T) {
-	server := newMockVault(t, map[string]string{"API_KEY": "abc123", "DB_PASS": "secret"})
-	defer server.Close()
-
-	client, err := vault.NewClient(server.URL, "test-token", "")
-	if err != nil {
-		t.Fatalf("NewClient: %v", err)
-	}
-
 	tmpDir := t.TempDir()
-	envPath := filepath.Join(tmpDir, ".env")
+	outPath := filepath.Join(tmpDir, ".env")
 
-	s := sync.New(client)
-	result, err := s.Sync("myapp/config", envPath)
+	client := &mockVault{secrets: map[string]string{"DB_URL": "postgres://localhost"}}
+	printer := output.New(os.Stdout)
+	cfg := newTestConfig(t, outPath, false, "")
+
+	s := sync.New(client, printer, cfg)
+	if err := s.Run(context.Background(), cfg); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	data, err := os.ReadFile(outPath)
 	if err != nil {
-		t.Fatalf("Sync: %v", err)
+		t.Fatalf("output file not written: %v", err)
 	}
-
-	if result.Summary.Added != 2 {
-		t.Errorf("expected 2 added, got %d", result.Summary.Added)
-	}
-	if result.Summary.Modified != 0 {
-		t.Errorf("expected 0 modified, got %d", result.Summary.Modified)
-	}
-
-	if _, err := os.Stat(envPath); os.IsNotExist(err) {
-		t.Error("expected env file to be created")
+	if string(data) == "" {
+		t.Error("expected non-empty .env file")
 	}
 }
 
 func TestSync_NoChanges(t *testing.T) {
-	server := newMockVault(t, map[string]string{"FOO": "bar"})
-	defer server.Close()
-
-	client, err := vault.NewClient(server.URL, "test-token", "")
-	if err != nil {
-		t.Fatalf("NewClient: %v", err)
-	}
-
 	tmpDir := t.TempDir()
-	envPath := filepath.Join(tmpDir, ".env")
-	if err := os.WriteFile(envPath, []byte("FOO=bar\n"), 0o644); err != nil {
-		t.Fatalf("WriteFile: %v", err)
+	outPath := filepath.Join(tmpDir, ".env")
+	_ = os.WriteFile(outPath, []byte("DB_URL=postgres://localhost\n"), 0o600)
+
+	client := &mockVault{secrets: map[string]string{"DB_URL": "postgres://localhost"}}
+	printer := output.New(os.Stdout)
+	cfg := newTestConfig(t, outPath, false, "")
+
+	s := sync.New(client, printer, cfg)
+	if err := s.Run(context.Background(), cfg); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestSync_BackupCreated(t *testing.T) {
+	tmpDir := t.TempDir()
+	outPath := filepath.Join(tmpDir, ".env")
+	_ = os.WriteFile(outPath, []byte("OLD=1\n"), 0o600)
+	bakDir := filepath.Join(tmpDir, "backups")
+
+	client := &mockVault{secrets: map[string]string{"NEW": "2"}}
+	printer := output.New(os.Stdout)
+	cfg := newTestConfig(t, outPath, true, bakDir)
+
+	s := sync.New(client, printer, cfg)
+	if err := s.Run(context.Background(), cfg); err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
 
-	s := sync.New(client)
-	result, err := s.Sync("myapp/config", envPath)
+	entries, err := os.ReadDir(bakDir)
 	if err != nil {
-		t.Fatalf("Sync: %v", err)
+		t.Fatalf("backup dir not created: %v", err)
 	}
-
-	if result.Summary.Added != 0 || result.Summary.Modified != 0 || result.Summary.Removed != 0 {
-		t.Errorf("expected no changes, got %+v", result.Summary)
+	if len(entries) != 1 {
+		t.Errorf("expected 1 backup file, got %d", len(entries))
 	}
 }
