@@ -56,6 +56,21 @@ func TestPrintDiff_Modified(t *testing.T) {
 	}
 }
 
+// TestPrintDiff_IncludesFilename verifies that the filename is present in the
+// diff output so users can identify which file is being reported.
+func TestPrintDiff_IncludesFilename(t *testing.T) {
+	var buf bytes.Buffer
+	p := New(&buf, true)
+	changes := []diff.Change{
+		{Key: "SOME_KEY", Type: diff.Added},
+	}
+	p.PrintDiff("myapp.env", changes)
+	out := buf.String()
+	if !strings.Contains(out, "myapp.env") {
+		t.Errorf("expected filename 'myapp.env' in output, got: %s", out)
+	}
+}
+
 func TestPrintSummary(t *testing.T) {
 	var buf bytes.Buffer
 	p := New(&buf, true)
