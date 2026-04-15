@@ -19,6 +19,7 @@ func New(backupDir string) *Manager {
 
 // Create writes a timestamped backup of the file at src.
 // Returns the path of the created backup file.
+// If src does not exist, an error is returned rather than creating an empty backup.
 func (m *Manager) Create(src string) (string, error) {
 	data, err := os.ReadFile(src)
 	if err != nil {
@@ -62,4 +63,24 @@ func (m *Manager) List(originalName string) ([]string, error) {
 		return nil, fmt.Errorf("backup: list %q: %w", pattern, err)
 	}
 	return matches, nil
+}
+
+// Latest returns the most recently created backup file for the given original
+// filename, or an error if no backups exist. Because backup filenames embed a
+// sortable UTC timestamp, a simple lexicographic sort is sufficient.
+func (m *Manager) Latest(originalName string) (string, error) {
+	matches, err := m.List(originalName)
+	if err != nil {
+		return "", err
+	}
+	if len(matches) == 0 {
+		return "", fmt.Errorf("backup: no backups found for %q", originalName)
+	}
+	latest := matches[0]
+	for _, p := range matches[1:] {
+		if p > latest {
+			latest = p
+		}
+	}
+	return latest, nil
 }
