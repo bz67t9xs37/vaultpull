@@ -1,60 +1,68 @@
 package diff
 
-import "fmt"
-
-// ChangeType represents the type of change for a secret entry.
-type ChangeType string
+// ChangeType describes the kind of change for a key.
+type ChangeType int
 
 const (
-	Added    ChangeType = "added"
-	Removed  ChangeType = "removed"
-	Modified ChangeType = "modified"
-	Unchanged ChangeType = "unchanged"
+	Added     ChangeType = iota
+	Removed
+	Modified
+	Unchanged
 )
 
-// Change represents a single diff entry between old and new secret values.
+// Change represents a single key-level difference.
 type Change struct {
-	Key    string
-	OldVal string
-	NewVal string
-	Type   ChangeType
+	Key      string
+	OldValue string
+	NewValue string
+	Type     ChangeType
 }
 
-// Compute returns the diff between existing (old) and incoming (new) secret maps.
-func Compute(old, new map[string]string) []Change {
+// SummaryResult holds counts of each change type.
+type SummaryResult struct {
+	Added     int
+	Removed   int
+	Modified  int
+	Unchanged int
+}
+
+// Compute compares two maps and returns a slice of Changes.
+func Compute(existing, incoming map[string]string) []Change {
 	var changes []Change
 
-	for k, newVal := range new {
-		if oldVal, exists := old[k]; !exists {
-			changes = append(changes, Change{Key: k, OldVal: "", NewVal: newVal, Type: Added})
+	for k, newVal := range incoming {
+		if oldVal, ok := existing[k]; !ok {
+			changes = append(changes, Change{Key: k, NewValue: newVal, Type: Added})
 		} else if oldVal != newVal {
-			changes = append(changes, Change{Key: k, OldVal: oldVal, NewVal: newVal, Type: Modified})
+			changes = append(changes, Change{Key: k, OldValue: oldVal, NewValue: newVal, Type: Modified})
 		} else {
-			changes = append(changes, Change{Key: k, OldVal: oldVal, NewVal: newVal, Type: Unchanged})
+			changes = append(changes, Change{Key: k, OldValue: oldVal, NewValue: newVal, Type: Unchanged})
 		}
 	}
 
-	for k, oldVal := range old {
-		if _, exists := new[k]; !exists {
-			changes = append(changes, Change{Key: k, OldVal: oldVal, NewVal: "", Type: Removed})
+	for k, oldVal := range existing {
+		if _, ok := incoming[k]; !ok {
+			changes = append(changes, Change{Key: k, OldValue: oldVal, Type: Removed})
 		}
 	}
 
 	return changes
 }
 
-// Summary returns a human-readable summary string of the diff.
-func Summary(changes []Change) string {
-	added, removed, modified := 0, 0, 0
+// Summary aggregates a slice of Changes into a SummaryResult.
+func Summary(changes []Change) SummaryResult {
+	var s SummaryResult
 	for _, c := range changes {
 		switch c.Type {
 		case Added:
-			added++
+			s.Added++
 		case Removed:
-			removed++
+			s.Removed++
 		case Modified:
-			modified++
+			s.Modified++
+		case Unchanged:
+			s.Unchanged++
 		}
 	}
-	return fmt.Sprintf("+%d added, -%d removed, ~%d modified", added, removed, modified)
+	return s
 }
