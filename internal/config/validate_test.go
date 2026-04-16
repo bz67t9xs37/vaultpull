@@ -108,3 +108,17 @@ func TestValidate_MultipleErrors(t *testing.T) {
 		t.Errorf("expected at least 3 errors, got %d: %v", len(ve.Errors), ve.Errors)
 	}
 }
+
+// TestValidate_EmptyTargets verifies that an explicitly empty (non-nil) targets
+// slice is treated the same as nil and produces a validation error.
+func TestValidate_EmptyTargets(t *testing.T) {
+	cfg := validConfig()
+	cfg.Targets = []Target{}
+	err := Validate(cfg)
+	if err == nil {
+		t.Fatal("expected error for empty targets slice")
+	}
+	if !strings.Contains(err.Error(), "at least one sync target") {
+		t.Errorf("unexpected error message: %v", err)
+	}
+}
