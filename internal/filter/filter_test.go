@@ -76,3 +76,14 @@ func TestApply_EmptySecrets(t *testing.T) {
 		t.Errorf("expected 0 keys, got %d", len(result))
 	}
 }
+
+func TestApply_IncludeBySuffix(t *testing.T) {
+	f := filter.New([]filter.Rule{{Suffix: "_KEY"}}, nil)
+	result := f.Apply(testSecrets)
+	if len(result) != 1 {
+		t.Errorf("expected 1 key, got %d", len(result))
+	}
+	if _, ok := result["APP_KEY"]; !ok {
+		t.Error("expected APP_KEY in result")
+	}
+}
