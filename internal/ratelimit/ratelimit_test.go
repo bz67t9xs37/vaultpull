@@ -80,3 +80,13 @@ func TestAllow_DefaultsAppliedOnZeroConfig(t *testing.T) {
 		t.Fatalf("unexpected denial with default config: %v", err)
 	}
 }
+
+func TestCount_DecreasesAfterReset(t *testing.T) {
+	l := newLimiter(10, time.Minute)
+	l.Allow("key1")
+	l.Allow("key1")
+	l.Reset("key1")
+	if c := l.Count("key1"); c != 0 {
+		t.Fatalf("expected count 0 after reset, got %d", c)
+	}
+}
