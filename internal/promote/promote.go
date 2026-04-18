@@ -6,51 +6,40 @@ import (
 	"time"
 )
 
-// SecretFetcher retrieves secrets from a given path.
-type SecretFetcher interface {
+// SecretStore abstracts reading and writing secrets.
+type SecretStore interface {
 	GetSecrets(ctx context.Context, path string) (map[string]string, error)
+	WriteSecrets(ctx context.Context, path string, secrets map[string]string) error
 }
 
-// SecretWriter writes secrets to a given path.
-type SecretWriter interface {
-	WriteSecrets(ctx context.Context, path string, secrets map[string]string) error
+// Promoter copies secrets from a source path to a destination path.
+type Promoter struct {
+	store   SecretStore
+	dryRun  bool
+	timeout time.Duration
+}
+
+// New creates a new Promoter.
+func New(store SecretStore, dryRun bool, timeout time.Duration) *Promoter {
+	return &Promoter{store: store, dryRun: dryRun, timeout: timeout}
 }
 
 // Result holds the outcome of a promotion.
 type Result struct {
-	Source      string
-	Destination string
-	Keys        []string
-	DryRun      bool
-	PromotedAt  time.Time
+	SourcePath string
+	DestPath   string
+	Keys       []string
+	DryRun     bool
 }
 
-// Promoter copies secrets from one path to another.
-type Promoter struct {
-	fetcher SecretFetcher
-	writer  SecretWriter
-	timeout time.Duration
-	dryRun  bool
-}
-
-// New creates a new Promoter.
-func New(fetcher SecretFetcher, writer SecretWriter, timeout time.Duration, dryRun bool) *Promoter {
-	return &Promoter{
-		fetcher: fetcher,
-		writer:  writer,
-		timeout: timeout,
-		dryRun:  dryRun,
-	}
-}
-
-// Promote copies secrets from source to destination path.
-func (p *Promoter) Promote(source, destination string) (*Result, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), p.timeout)
+// Promote fetches secrets from src and writes them to dst.
+func (p *Promoter) Promote(ctx context.Context, src, dst string) (*Result, error) {
+	ctx, cancel := context.WithTimeout(ctx, p.timeout)
 	defer cancel()
 
-	secrets, err := p.fetcher.GetSecrets(ctx, source)
+	secrets, err := p.store.GetSecrets(ctx, src)
 	if err != nil {
-		return nil, fmt.Errorf("promote: fetch from %q: %w", source, err)
+		return nil, fmt.Errorf("promote: fetch from %q: %w", src, err)
 	}
 
 	keys := make([]string, 0, len(secrets))
@@ -59,16 +48,15 @@ func (p *Promoter) Promote(source, destination string) (*Result, error) {
 	}
 
 	if !p.dryRun {
-		if err := p.writer.WriteSecrets(ctx, destination, secrets); err != nil {
-			return nil, fmt.Errorf("promote: write to %q: %w", destination, err)
+		if err := p.store.WriteSecrets(ctx, dst, secrets); err != nil {
+			return nil, fmt.Errorf("promote: write to %q: %w", dst, err)
 		}
 	}
 
 	return &Result{
-		Source:      source,
-		Destination: destination,
-		Keys:        keys,
-		DryRun:      p.dryRun,
-		PromotedAt:  time.Now(),
+		SourcePath: src,
+		DestPath:   dst,
+		Keys:       keys,
+		DryRun:     p.dryRun,
 	}, nil
 }

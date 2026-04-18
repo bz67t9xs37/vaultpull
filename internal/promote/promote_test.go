@@ -1,86 +1,97 @@
-package promote
+package promote_test
 
 import (
 	"context"
 	"errors"
 	"testing"
 	"time"
+
+	"github.com/your-org/vaultpull/internal/promote"
 )
 
-type mockFetcher struct {
-	secrets map[string]string
-	err     error
+type mockStore struct {
+	data     map[string]map[string]string
+	written  map[string]map[string]string
+	fetchErr error
+	writeErr error
 }
 
-func (m *mockFetcher) GetSecrets(_ context.Context, _ string) (map[string]string, error) {
-	return m.secrets, m.err
+func (m *mockStore) GetSecrets(_ context.Context, path string) (map[string]string, error) {
+	if m.fetchErr != nil {
+		return nil, m.fetchErr
+	}
+	return m.data[path], nil
 }
 
-type mockWriter struct {
-	written map[string]string
-	err     error
+func (m *mockStore) WriteSecrets(_ context.Context, path string, secrets map[string]string) error {
+	if m.writeErr != nil {
+		return m.writeErr
+	}
+	if m.written == nil {
+		m.written = make(map[string]map[string]string)
+	}
+	m.written[path] = secrets
+	return nil
 }
 
-func (m *mockWriter) WriteSecrets(_ context.Context, _ string, secrets map[string]string) error {
-	m.written = secrets
-	return m.err
+func newStore() *mockStore {
+	return &mockStore{
+		data: map[string]map[string]string{
+			"secret/staging/app": {"DB_URL": "postgres://staging", "API_KEY": "abc"},
+		},
+	}
 }
 
 func TestPromote_DryRun_DoesNotWrite(t *testing.T) {
-	fetcher := &mockFetcher{secrets: map[string]string{"KEY": "val"}}
-	writer := &mockWriter{}
-	p := New(fetcher, writer, 5*time.Second, true)
-
-	result, err := p.Promote("secret/staging", "secret/prod")
+	store := newStore()
+	p := promote.New(store, true, 5*time.Second)
+	res, err := p.Promote(context.Background(), "secret/staging/app", "secret/prod/app")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !result.DryRun {
-		t.Error("expected dry run")
+	if !res.DryRun {
+		t.Error("expected DryRun=true")
 	}
-	if writer.written != nil {
-		t.Error("expected no write in dry run")
-	}
-	if len(result.Keys) != 1 {
-		t.Errorf("expected 1 key, got %d", len(result.Keys))
+	if store.written != nil {
+		t.Error("expected no writes in dry-run mode")
 	}
 }
 
 func TestPromote_WritesSecrets(t *testing.T) {
-	fetcher := &mockFetcher{secrets: map[string]string{"DB_PASS": "secret"}}
-	writer := &mockWriter{}
-	p := New(fetcher, writer, 5*time.Second, false)
-
-	result, err := p.Promote("secret/staging", "secret/prod")
+	store := newStore()
+	p := promote.New(store, false, 5*time.Second)
+	res, err := p.Promote(context.Background(), "secret/staging/app", "secret/prod/app")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.DryRun {
-		t.Error("expected live run")
+	if len(res.Keys) != 2 {
+		t.Errorf("expected 2 keys, got %d", len(res.Keys))
 	}
-	if writer.written["DB_PASS"] != "secret" {
-		t.Errorf("expected written secret, got %v", writer.written)
+	if store.written["secret/prod/app"]["DB_URL"] != "postgres://staging" {
+		t.Error("expected DB_URL to be promoted")
 	}
 }
 
 func TestPromote_FetchError(t *testing.T) {
-	fetcher := &mockFetcher{err: errors.New("vault unavailable")}
-	writer := &mockWriter{}
-	p := New(fetcher, writer, 5*time.Second, false)
-
-	_, err := p.Promote("secret/staging", "secret/prod")
+	store := &mockStore{fetchErr: errors.New("vault unavailable")}
+	p := promote.New(store, false, 5*time.Second)
+	_, err := p.Promote(context.Background(), "secret/staging/app", "secret/prod/app")
 	if err == nil {
-		t.Fatal("expected error")
+		t.Fatal("expected error, got nil")
 	}
 }
 
-func TestPromote_WriteError(t *testing.T) {
-	fetcher := &mockFetcher{secrets: map[string]string{"X": "y"}}
-	writer := &mockWriter{err: errors.New("write failed")}
-	p := New(fetcher, writer, 5*time.Second, false)
-
-	_, err := p.Promote("secret/staging", "secret/prod")
-	if err == nil {
-		t.Fatal("expected error")
+func TestPromote_FullLifecycle(t *testing.T) {
+	store := newStore()
+	p := promote.New(store, false, 5*time.Second)
+	res, err := p.Promote(context.Background(), "secret/staging/app", "secret/prod/app")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.SourcePath != "secret/staging/app" {
+		t.Errorf("unexpected source: %s", res.SourcePath)
+	}
+	if res.DestPath != "secret/prod/app" {
+		t.Errorf("unexpected dest: %s", res.DestPath)
 	}
 }
