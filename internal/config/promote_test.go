@@ -1,72 +1,78 @@
-package config
+package config_test
 
 import (
 	"testing"
 	"time"
+
+	"github.com/yourusername/vaultpull/internal/config"
 )
 
 func TestDefaultPromoteConfig_Values(t *testing.T) {
-	c := DefaultPromoteConfig()
+	c := config.DefaultPromoteConfig()
 	if c.Enabled {
 		t.Error("expected Enabled to be false")
 	}
-	if !c.DryRun {
-		t.Error("expected DryRun to be true")
+	if c.DryRun {
+		t.Error("expected DryRun to be false")
 	}
 	if c.Timeout != 30*time.Second {
-		t.Errorf("unexpected timeout: %v", c.Timeout)
+		t.Errorf("expected Timeout 30s, got %v", c.Timeout)
 	}
 }
 
 func TestApplyPromoteDefaults_NilSafe(t *testing.T) {
-	c := ApplyPromoteDefaults(nil)
+	c := config.ApplyPromoteDefaults(nil)
 	if c == nil {
-		t.Fatal("expected non-nil result")
+		t.Fatal("expected non-nil config")
 	}
 	if c.Timeout != 30*time.Second {
-		t.Errorf("unexpected timeout: %v", c.Timeout)
+		t.Errorf("expected default timeout, got %v", c.Timeout)
 	}
 }
 
 func TestApplyPromoteDefaults_FillsZeroTimeout(t *testing.T) {
-	c := &PromoteConfig{Enabled: true}
-	result := ApplyPromoteDefaults(c)
+	c := &config.PromoteConfig{Enabled: true}
+	result := config.ApplyPromoteDefaults(c)
 	if result.Timeout != 30*time.Second {
-		t.Errorf("expected default timeout, got %v", result.Timeout)
+		t.Errorf("expected timeout filled, got %v", result.Timeout)
 	}
 }
 
 func TestApplyPromoteDefaults_PreservesExistingValues(t *testing.T) {
-	c := &PromoteConfig{
+	c := &config.PromoteConfig{
 		Enabled: true,
-		Source:  "staging",
+		DryRun:  true,
 		Timeout: 60 * time.Second,
+		Source:  "staging",
+		Destination: "production",
 	}
-	result := ApplyPromoteDefaults(c)
-	if result.Source != "staging" {
-		t.Errorf("expected source to be preserved, got %q", result.Source)
-	}
+	result := config.ApplyPromoteDefaults(c)
 	if result.Timeout != 60*time.Second {
-		t.Errorf("expected timeout to be preserved, got %v", result.Timeout)
+		t.Errorf("expected preserved timeout, got %v", result.Timeout)
+	}
+	if result.Source != "staging" {
+		t.Errorf("expected source preserved, got %q", result.Source)
 	}
 }
 
 func TestIsEnabled_Promote(t *testing.T) {
-	if (*PromoteConfig)(nil).IsEnabled() {
-		t.Error("nil config should not be enabled")
-	}
-	c := &PromoteConfig{Enabled: true}
+	c := &config.PromoteConfig{Enabled: true}
 	if !c.IsEnabled() {
-		t.Error("expected enabled")
+		t.Error("expected IsEnabled true")
+	}
+	var nilC *config.PromoteConfig
+	if nilC.IsEnabled() {
+		t.Error("expected nil IsEnabled false")
 	}
 }
 
 func TestIsDryRun_Promote(t *testing.T) {
-	if !(*PromoteConfig)(nil).IsDryRun() {
-		t.Error("nil config should default to dry run")
+	c := &config.PromoteConfig{DryRun: true}
+	if !c.IsDryRun() {
+		t.Error("expected IsDryRun true")
 	}
-	c := &PromoteConfig{DryRun: false}
-	if c.IsDryRun() {
-		t.Error("expected dry run to be false")
+	var nilC *config.PromoteConfig
+	if nilC.IsDryRun() {
+		t.Error("expected nil IsDryRun false")
 	}
 }

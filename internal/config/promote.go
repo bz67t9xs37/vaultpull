@@ -2,25 +2,25 @@ package config
 
 import "time"
 
-// PromoteConfig holds settings for secret promotion between Vault paths.
+// PromoteConfig holds configuration for secret promotion between environments.
 type PromoteConfig struct {
 	Enabled     bool          `yaml:"enabled"`
+	Source      string        `yaml:"source"`
+	Destination string        `yaml:"destination"`
 	DryRun      bool          `yaml:"dry_run"`
 	Timeout     time.Duration `yaml:"timeout"`
-	SourceMount string        `yaml:"source_mount"`
-	DestMount   string        `yaml:"dest_mount"`
 }
 
+// DefaultPromoteConfig returns a PromoteConfig with sensible defaults.
 func DefaultPromoteConfig() *PromoteConfig {
 	return &PromoteConfig{
-		Enabled:     false,
-		DryRun:      false,
-		Timeout:     30 * time.Second,
-		SourceMount: "secret",
-		DestMount:   "secret",
+		Enabled: false,
+		DryRun:  false,
+		Timeout: 30 * time.Second,
 	}
 }
 
+// ApplyPromoteDefaults fills zero-value fields with defaults.
 func ApplyPromoteDefaults(c *PromoteConfig) *PromoteConfig {
 	if c == nil {
 		return DefaultPromoteConfig()
@@ -28,19 +28,21 @@ func ApplyPromoteDefaults(c *PromoteConfig) *PromoteConfig {
 	if c.Timeout == 0 {
 		c.Timeout = 30 * time.Second
 	}
-	if c.SourceMount == "" {
-		c.SourceMount = "secret"
-	}
-	if c.DestMount == "" {
-		c.DestMount = "secret"
-	}
 	return c
 }
 
+// IsEnabled returns true if promotion is enabled.
 func (c *PromoteConfig) IsEnabled() bool {
-	return c != nil && c.Enabled
+	if c == nil {
+		return false
+	}
+	return c.Enabled
 }
 
+// IsDryRun returns true if dry-run mode is active.
 func (c *PromoteConfig) IsDryRun() bool {
-	return c != nil && c.DryRun
+	if c == nil {
+		return false
+	}
+	return c.DryRun
 }
