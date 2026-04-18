@@ -84,3 +84,17 @@ func TestLoad_InvalidYAML(t *testing.T) {
 		t.Fatal("expected YAML parse error")
 	}
 }
+
+func TestLoad_MissingToken(t *testing.T) {
+	path := writeTemp(t, `
+vault:
+  address: http://127.0.0.1:8200
+targets:
+  - secret: myapp/prod
+    env_file: .env
+`)
+	_, err := config.Load(path)
+	if err == nil {
+		t.Fatal("expected validation error for missing token")
+	}
+}
