@@ -74,3 +74,20 @@ func TestIsEnabled_Nil(t *testing.T) {
 		t.Error("expected nil config to return false")
 	}
 }
+
+func TestApplyRotateDefaults_FillsEmptyStateDir(t *testing.T) {
+	// Ensure that a config with a non-zero interval but empty StateDir
+	// still gets a default StateDir applied.
+	c := &RotateConfig{
+		Enabled:  true,
+		Interval: 12 * time.Hour,
+		StateDir: "",
+	}
+	result := ApplyRotateDefaults(c)
+	if result.StateDir == "" {
+		t.Error("expected StateDir to be filled when empty")
+	}
+	if result.Interval != 12*time.Hour {
+		t.Errorf("expected interval to be preserved, got %v", result.Interval)
+	}
+}
