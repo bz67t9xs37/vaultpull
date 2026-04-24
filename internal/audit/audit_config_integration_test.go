@@ -53,3 +53,38 @@ func TestAudit_DisabledViaConfig(t *testing.T) {
 		t.Error("expected audit to be disabled")
 	}
 }
+
+// TestAudit_RecordedEntryFields verifies that the fields written by Record are
+// preserved exactly when the entry is read back via ReadAll.
+func TestAudit_RecordedEntryFields(t *testing.T) {
+	dir := t.TempDir()
+	logger := audit.New(filepath.Join(dir, "audit.log"))
+
+	want := audit.Entry{
+		Path:    "secret/db",
+		Action:  "pull",
+		Changes: 5,
+	}
+	if err := logger.Record(want); err != nil {
+		t.Fatalf("unexpected error recording entry: %v", err)
+	}
+
+	entries, err := logger.ReadAll()
+	if err != nil {
+		t.Fatalf("unexpected error reading entries: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(entries))
+	}
+
+	got := entries[0]
+	if got.Path != want.Path {
+		t.Errorf("Path: got %q, want %q", got.Path, want.Path)
+	}
+	if got.Action != want.Action {
+		t.Errorf("Action: got %q, want %q", got.Action, want.Action)
+	}
+	if got.Changes != want.Changes {
+		t.Errorf("Changes: got %d, want %d", got.Changes, want.Changes)
+	}
+}
