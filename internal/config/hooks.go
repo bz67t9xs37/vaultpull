@@ -21,9 +21,12 @@ func ApplyHookDefaults(h *HooksConfig) {
 }
 
 // ToRunner converts the HooksConfig into a hook.Runner.
+// Returns a Runner with no registered hooks if h is nil.
 func (h *HooksConfig) ToRunner() *hook.Runner {
 	if h == nil {
-		return hook.Newtr := hook.New()
+		return hook.New()
+	}
+	r := hook.New()
 	if h.PreSync != "" {
 		r.Register(hook.PreSync, h.PreSync)
 	}
